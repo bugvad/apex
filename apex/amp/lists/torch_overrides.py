@@ -74,10 +74,13 @@ if version_num < 1.1:
 _bmms = ['addbmm',
          'baddbmm',
          'bmm']
-if utils.get_cuda_version() >= (9, 1, 0):
-    FP16_FUNCS.extend(_bmms)
-else:
-    FP32_FUNCS.extend(_bmms)
+
+if utils.is_cuda_enabled():
+  # workaround https://github.com/facebookresearch/maskrcnn-benchmark/issues/802
+  if utils.get_cuda_version() >= (9, 1, 0):
+      FP16_FUNCS.extend(_bmms)
+  else:
+      FP32_FUNCS.extend(_bmms)
 
 # Multi-tensor fns that may need type promotion
 CASTS = [
@@ -87,6 +90,7 @@ CASTS = [
     'atan2',
     'cross',
     'bilinear',
+    'dot',
 
     # Element-wise _or_ tensor-wise math
     'add',

@@ -1,14 +1,15 @@
 import contextlib
 import warnings
+import sys
 import torch
 
 from . import utils
 from .opt import OptimWrapper
 from .scaler import LossScaler
 from ._amp_state import _amp_state, master_params, maybe_print
-from ..fp16_utils import FP16_Optimizer as FP16_Optimizer_general
-from ..optimizers import FP16_Optimizer as FP16_Optimizer_for_fused
-from ..parallel.LARC import LARC
+
+if torch.distributed.is_available():
+    from ..parallel.LARC import LARC
 
 
 # There's no reason to expose the notion of a "handle". Everything can happen through amp.* calls.
@@ -86,16 +87,11 @@ def scale_loss(loss,
         yield loss
         return
 
-    if isinstance(optimizers, torch.optim.Optimizer) or isinstance(optimizers, LARC):
+    if isinstance(optimizers, torch.optim.Optimizer) or ('LARC' in sys.modules and isinstance(optimizers, LARC)):
         optimizers = [optimizers]
 
-    # this is what happens when i have to support tools from different sources under the same API...
-    # TODO:  Rewrite FusedAdam to use multi-tensor apply and the same loss scaler.
-    if isinstance(optimizers, FP16_Optimizer_for_fused):
-        loss_scale = optimizers.cur_scale
-    else:
-        loss_scaler = _amp_state.loss_scalers[loss_id]
-        loss_scale = loss_scaler.loss_scale()
+    loss_scaler = _amp_state.loss_scalers[loss_id]
+    loss_scale = loss_scaler.loss_scale()
 
     if ((not _amp_state.opt_properties.master_weights)
         and (not loss_scaler.dynamic)
@@ -120,8 +116,8 @@ def scale_loss(loss,
         for optimizer in optimizers:
             optimizer._amp_stash.params_have_scaled_gradients = True
     else:
-        # FusedAdam and FusedSGD will take care of unscaling as part of their step() methods.
-        if not isinstance(optimizers, FP16_Optimizer_for_fused):
+        # FusedSGD may take care of unscaling as part of their step() methods.
+        # if not isinstance(optimizers, FP16_Optimizer_for_fused):
             loss_scaler.clear_overflow_state()
             for optimizer in optimizers:
                 optimizer._post_amp_backward(loss_scaler)
@@ -142,10 +138,15 @@ def scale_loss(loss,
                                 maybe_print(("Gradient overflow.  Skipping step, loss scaler " +
                                              "{} reducing loss scale to {}").format(loss_id,
                                              loss_scaler.loss_scale()))
+                                # TODO:  I don't like the special casing for different optimizer implementations.
+                                # Maybe skip should delegate to a method owned by the optimizers themselves.
                                 if hasattr(opt._amp_stash, "all_fp32_from_fp16_params"):
                                     # Clear the master grads that wouldn't be zeroed by model.zero_grad()
                                     for param in opt._amp_stash.all_fp32_from_fp16_params:
                                         param.grad = None
+                                if hasattr(opt, "most_recent_scale"):
+                                    opt.most_recent_scale = 1.0
+                                    opt.scale_set_by_backward = False
                                 opt.step = opt_step
                                 opt._amp_stash.already_patched = False
                             return skip_step

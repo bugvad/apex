@@ -1,12 +1,14 @@
 # Introduction
 
-This repository holds NVIDIA-maintained utilities to streamline 
-mixed precision and distributed training in Pytorch. 
+This repository holds NVIDIA-maintained utilities to streamline
+mixed precision and distributed training in Pytorch.
 Some of the code here will be included in upstream Pytorch eventually.
-The intention of Apex is to make up-to-date utilities available to 
+The intention of Apex is to make up-to-date utilities available to
 users as quickly as possible.
 
 ## Full API Documentation: [https://nvidia.github.io/apex](https://nvidia.github.io/apex)
+
+## [GTC 2019](https://github.com/mcarilli/mixed_precision_references/tree/master/GTC_2019) and [Pytorch DevCon 2019](https://github.com/mcarilli/mixed_precision_references/tree/master/Pytorch_Devcon_2019) Slides
 
 # Contents
 
@@ -29,7 +31,7 @@ different flags to `amp.initialize`.
 
 ## 2. Distributed Training
 
-`apex.parallel.DistributedDataParallel` is a module wrapper, similar to 
+`apex.parallel.DistributedDataParallel` is a module wrapper, similar to
 `torch.nn.parallel.DistributedDataParallel`.  It enables convenient multiprocess distributed training,
 optimized for NVIDIA's NCCL communication library.
 
@@ -53,6 +55,48 @@ Allreduced stats increase the effective batch size for the BN layer to the
 global batch size across all processes (which, technically, is the correct
 formulation).
 Synchronous BN has been observed to improve converged accuracy in some of our research models.
+
+### Checkpointing
+
+To properly save and load your `amp` training, we introduce the `amp.state_dict()`, which contains all `loss_scalers` and their corresponding unskipped steps,
+as well as `amp.load_state_dict()` to restore these attributes.
+
+In order to get bitwise accuracy, we recommend the following workflow:
+```python
+# Initialization
+opt_level = 'O1'
+model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
+
+# Train your model
+...
+with amp.scale_loss(loss, optimizer) as scaled_loss:
+    scaled_loss.backward()
+...
+
+# Save checkpoint
+checkpoint = {
+    'model': model.state_dict(),
+    'optimizer': optimizer.state_dict(),
+    'amp': amp.state_dict()
+}
+torch.save(checkpoint, 'amp_checkpoint.pt')
+...
+
+# Restore
+model = ...
+optimizer = ...
+checkpoint = torch.load('amp_checkpoint.pt')
+
+model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
+model.load_state_dict(checkpoint['model'])
+optimizer.load_state_dict(checkpoint['optimizer'])
+amp.load_state_dict(checkpoint['amp'])
+
+# Continue training
+...
+```
+
+Note that we recommend restoring the model using the same `opt_level`. Also note that we recommend calling the `load_state_dict` methods after `amp.initialize`.
 
 # Requirements
 
@@ -93,6 +137,11 @@ A Python-only build omits:
 - Fused kernels that improve the performance and numerical stability of `apex.parallel.SyncBatchNorm`.
 - Fused kernels that improve the performance of `apex.parallel.DistributedDataParallel` and `apex.amp`.
 `DistributedDataParallel`, `amp`, and `SyncBatchNorm` will still be usable, but they may be slower.
+
+To enable PyProf support, you need to install the packages required by PyProf. To do so, add the "--pyprof" option at installation time:
+```
+$ pip install -v --no-cache-dir --global-option="--pyprof" --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+```
 
 ### Windows support
 Windows support is experimental, and Linux is recommended.  `pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" .` may work if you were able to build Pytorch from source

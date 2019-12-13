@@ -1,7 +1,10 @@
 # May help avoid undefined symbol errors https://pytorch.org/cppdocs/notes/faq.html#undefined-symbol-errors-from-pytorch-aten
 import torch
+import warnings
 
-from . import parallel
+if torch.distributed.is_available():
+    from . import parallel
+
 from . import amp
 from . import fp16_utils
 
@@ -14,3 +17,4 @@ from . import fp16_utils
 # load time) the error message is timely and visible.
 from . import optimizers
 from . import normalization
+from . import pyprof
