@@ -1,5 +1,6 @@
 import torch
-from torch import string_classes
+# from torch import string_classes
+string_classes = str
 import functools
 import numpy as np
 import sys
